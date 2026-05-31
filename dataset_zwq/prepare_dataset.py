@@ -332,6 +332,8 @@ def main():
     parser.add_argument("--samples", type=int, default=None,
                         help="每类每集最多 N 张（论文用 350）")
     parser.add_argument("--skip-download", action="store_true", help="跳过下载")
+    parser.add_argument("--split-only", action="store_true",
+                        help="仅重新分集（需先完成过完整流程）")
     parser.add_argument("--workers", "-w", type=int, default=8,
                         help="并行下载线程数（默认 8）")
     parser.add_argument("--seed", type=int, default=42)
@@ -352,36 +354,41 @@ def main():
     print(f"  下载线程: {args.workers}")
     print("=" * 56)
 
-    # ── 1. 下载 ──────────────────────────────────────
-    if args.skip_download:
-        print("\n[1/4] 跳过下载")
-    else:
-        print("\n[1/4] 下载文件")
-        # 大文件：多线程并行下载
-        ok = download_parallel(URL_512, zip_512, "HaGRIDv2 512px",
-                               workers=args.workers)
-        # 小文件：普通下载
-        ok = ok and download_simple(URL_ANN, ann_zip, "标注文件")
-        if not ok:
-            print("❌ 下载失败，检查网络后重试（已完成的分块会自动复用）")
+    if args.split_only:
+        # 仅重新分集，跳过下载和解压
+        print("\n[跳过 1-3] 仅重新分集")
+        if not raw_dir.exists() or not ann_dir.exists():
+            print("❌ 缺少 raw_images/ 或 annotations/，请先完成完整流程")
             sys.exit(1)
+    else:
+        # ── 1. 下载 ──────────────────────────────────
+        if args.skip_download:
+            print("\n[1/4] 跳过下载")
+        else:
+            print("\n[1/4] 下载文件")
+            ok = download_parallel(URL_512, zip_512, "HaGRIDv2 512px",
+                                   workers=args.workers)
+            ok = ok and download_simple(URL_ANN, ann_zip, "标注文件")
+            if not ok:
+                print("❌ 下载失败，检查网络后重试（已完成的分块会自动复用）")
+                sys.exit(1)
 
-    # ── 2. 解压标注 ──────────────────────────────────
-    print("\n[2/4] 解压标注")
-    if not ann_zip.exists():
-        print(f"❌ 缺少 {ann_zip}")
-        sys.exit(1)
-    with zipfile.ZipFile(ann_zip) as zf:
-        zf.extractall(ann_dir)
-    print(f"  [OK] → {ann_dir}")
+        # ── 2. 解压标注 ──────────────────────────────
+        print("\n[2/4] 解压标注")
+        if not ann_zip.exists():
+            print(f"❌ 缺少 {ann_zip}")
+            sys.exit(1)
+        with zipfile.ZipFile(ann_zip) as zf:
+            zf.extractall(ann_dir)
+        print(f"  [OK] → {ann_dir}")
 
-    # ── 3. 选择性解压 7 类 ────────────────────────────
-    print("\n[3/4] 解压目标手势类")
-    if not zip_512.exists():
-        print(f"❌ 缺少 {zip_512}")
-        sys.exit(1)
-    counts = extract_zip_classes(str(zip_512), TARGET_CLASSES, str(raw_dir))
-    print(f"\n  共解压 {sum(counts.values())} 张")
+        # ── 3. 选择性解压 7 类 ────────────────────────
+        print("\n[3/4] 解压目标手势类")
+        if not zip_512.exists():
+            print(f"❌ 缺少 {zip_512}")
+            sys.exit(1)
+        counts = extract_zip_classes(str(zip_512), TARGET_CLASSES, str(raw_dir))
+        print(f"\n  共解压 {sum(counts.values())} 张")
 
     # ── 4. 按 train/val/test 分集 ─────────────────────
     print("\n[4/4] 按 train/val/test 分集")
