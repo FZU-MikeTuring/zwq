@@ -47,9 +47,21 @@ hand_detector = None
 
 
 def init_model(model_path: str = None):
-    """初始化 A-MobileNet-HGR 模型"""
+    """初始化 A-MobileNet-HGR 模型，自动检测训练好的权重"""
     global model
     model = AMobileNetGesture(num_classes=NUM_CLASSES).to(device)
+
+    # 自动查找最佳权重
+    if model_path is None:
+        candidates = [
+            os.path.join(os.path.dirname(os.path.dirname(__file__)), "output", "best_model.pth"),
+            os.path.join(os.path.dirname(os.path.dirname(__file__)), "output", "amobilenet_hgr_final.pth"),
+        ]
+        for cand in candidates:
+            if os.path.exists(cand):
+                model_path = cand
+                break
+
     if model_path and os.path.exists(model_path):
         model.load_state_dict(torch.load(model_path, map_location=device))
         print(f"[OK] Model weights loaded: {model_path}")

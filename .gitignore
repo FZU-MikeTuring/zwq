@@ -1,0 +1,37 @@
+# === 数据集（不上传） ===
+dataset_zwq/hagrid_dataset/
+dataset_zwq/hagridv2_512.zip
+dataset_zwq/annotations.zip
+dataset_zwq/*.zip
+*.zip
+
+# 数据集图片
+dataset_zwq/hagrid_dataset/raw_images/
+dataset_zwq/hagrid_dataset/organized/
+dataset_zwq/hagrid_dataset/annotations/
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# === 虚拟环境 ===
+venv/
+.venv/
+env/
+*.env
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# === OS ===
+.DS_Store
+Thumbs.db
+
+# === output 目录正常上传（含模型权重 .pth、训练曲线、混淆矩阵） ===

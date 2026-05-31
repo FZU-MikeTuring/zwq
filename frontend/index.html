@@ -74,12 +74,17 @@
             overflow: hidden;
             aspect-ratio: 4/3;
         }
-        .camera-wrapper video, .camera-wrapper canvas {
+        .camera-wrapper video,
+        .camera-wrapper .frame-canvas,
+        .camera-wrapper .roi-canvas {
             position: absolute;
             top: 0; left: 0;
             width: 100%; height: 100%;
             object-fit: contain;
         }
+        .roi-canvas { z-index: 2; pointer-events: none; }
+        .frame-canvas { z-index: 1; }
+        video { z-index: 0; }
         .camera-overlay {
             position: absolute;
             top: 12px; left: 12px;
@@ -87,6 +92,7 @@
             padding: 6px 12px;
             border-radius: 6px;
             font-size: 0.8em;
+            z-index: 3;
         }
         .camera-controls {
             display: flex;
@@ -214,7 +220,8 @@
             <div class="card-title">📷 摄像头实时画面</div>
             <div class="camera-wrapper" ref="cameraWrapper">
                 <video ref="videoEl" autoplay playsinline muted></video>
-                <canvas ref="canvasEl"></canvas>
+                <canvas class="frame-canvas" ref="frameCanvas"></canvas>
+                <canvas class="roi-canvas" ref="roiCanvas"></canvas>
                 <div class="camera-overlay" v-if="currentGesture">
                     {{ currentGesture.cn }} <span style="color:var(--accent)">{{ (confidence * 100).toFixed(1) }}%</span>
                 </div>
@@ -301,44 +308,39 @@
         </div>
     </div>
 
-    <!-- Gesture Reference -->
+    <!-- Gesture Reference (dynamic from API) -->
     <div class="card" style="margin:0 24px 16px">
         <div class="card-title">📋 手势 — 指令对照</div>
         <div style="display:flex;gap:16px;flex-wrap:wrap;justify-content:center;font-size:0.85em">
-            <span>🖐️ 手掌 → 开灯</span>
-            <span style="color:var(--sub)">|</span>
-            <span>✊ 握拳 → 关灯</span>
-            <span style="color:var(--sub)">|</span>
-            <span>👌 OK → 确认/模式</span>
-            <span style="color:var(--sub)">|</span>
-            <span>👍 赞 → 调高</span>
-            <span style="color:var(--sub)">|</span>
-            <span>👎 踩 → 调低</span>
-            <span style="color:var(--sub)">|</span>
-            <span>☝️ 食指 → 切换设备</span>
-            <span style="color:var(--sub)">|</span>
-            <span>😐 无手势 → 空闲</span>
+            <template v-for="(cn, label) in gestureLabelsCn" :key="label">
+                <span>{{ gestureEmoji[label] || '❓' }} {{ cn }} → {{ commandDescCn[commandMap[label]] || commandMap[label] }}</span>
+                <span style="color:var(--sub)">|</span>
+            </template>
         </div>
     </div>
 
     <!-- Status Bar -->
     <div class="status-bar">
         <span>模型: A-MobileNet-HGR | 参数量: ~2.7M | 准确率: 96.2% | CPU延迟: ~44ms</span>
-        <span style="margin-left:auto">滑窗: 8帧/5票 | 置信度阈值: 0.75 | 冷却: 1.0s</span>
+        <span style="margin-left:auto">滑窗: {{ configParams.sliding_window }}帧/{{ configParams.min_votes }}票
+            | 置信度阈值: {{ configParams.confidence_threshold }}
+            | 冷却: {{ configParams.cooldown_sec }}s</span>
     </div>
 </div>
 
 <script>
-const { createApp, ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } = Vue;
+const { createApp, ref, reactive, onMounted, onUnmounted, nextTick } = Vue;
 
 createApp({
     setup() {
-        // ========== State ==========
+        // ========== Refs ==========
         const videoEl = ref(null);
-        const canvasEl = ref(null);
+        const frameCanvas = ref(null);
+        const roiCanvas = ref(null);
         const chartCanvas = ref(null);
         const cameraWrapper = ref(null);
 
+        // ========== State ==========
         const wsOnline = ref(false);
         const cameraActive = ref(false);
         const fps = ref(0);
@@ -350,7 +352,6 @@ createApp({
         const roiSrc = ref(null);
         const deviceStates = ref({});
         const cmdHistory = reactive([]);
-        const latestCommand = ref('');
 
         let ws = null;
         let stream = null;
@@ -359,14 +360,16 @@ createApp({
         let fpsCounter = [];
         let lastFrameTime = 0;
 
-        // ========== Constants ==========
+        // ========== Config from API (single source of truth) ==========
+        const gestureLabelsCn = ref({});
+        const commandMap = ref({});
+        const commandDescCn = ref({});
+        const configParams = ref({ sliding_window: 8, min_votes: 5, confidence_threshold: 0.75, cooldown_sec: 1.0 });
+
+        // ========== Frontend-only constants ==========
         const gestureEmoji = {
             palm: '🖐️', fist: '✊', ok: '👌', like: '👍',
             dislike: '👎', one: '☝️', no_gesture: '😐',
-        };
-        const gestureLabelsCn = {
-            palm: '手掌', fist: '握拳', ok: 'OK', like: '拇指向上',
-            dislike: '拇指向下', one: '食指', no_gesture: '无手势',
         };
         const deviceIcons = {
             '客厅灯': '💡', '空调': '❄️', '窗帘': '🪟', '电视': '📺',
@@ -413,7 +416,6 @@ createApp({
 
                     // Command triggered
                     if (data.command && data.command !== 'idle') {
-                        latestCommand.value = data.command_desc;
                         cmdHistory.unshift({
                             time: new Date().toLocaleTimeString(),
                             gesture: data.pred_label_cn,
@@ -423,7 +425,7 @@ createApp({
                         if (cmdHistory.length > 20) cmdHistory.pop();
                     }
 
-                    // Draw ROI box
+                    // Draw ROI box on separate overlay canvas (won't be overwritten)
                     drawROIBox(data.hand_box);
 
                 } else if (data.type === 'no_hand') {
@@ -471,6 +473,7 @@ createApp({
             cameraActive.value = false;
             currentGesture.value = null;
             roiSrc.value = null;
+            clearROIBox();
         }
 
         function sendFrames() {
@@ -480,7 +483,7 @@ createApp({
             }
 
             const video = videoEl.value;
-            const canvas = canvasEl.value;
+            const canvas = frameCanvas.value;
             if (!video || !canvas) return;
 
             const ctx = canvas.getContext('2d');
@@ -497,32 +500,52 @@ createApp({
             animFrameId = requestAnimationFrame(sendFrames);
         }
 
+        // ========== ROI Box (separate overlay canvas) ==========
         function drawROIBox(handBox) {
-            if (!handBox || !canvasEl.value) return;
-            const canvas = canvasEl.value;
+            const canvas = roiCanvas.value;
+            if (!canvas) return;
+            const video = videoEl.value;
+            if (!video) return;
+
+            // Match video dimensions for correct coordinate mapping
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+
             const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (!handBox) return;
+
             const [x1, y1, x2, y2] = handBox;
+            // Semi-transparent fill outside ROI
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.clearRect(x1, y1, x2 - x1, y2 - y1);
+            // ROI border
             ctx.strokeStyle = '#10b981';
             ctx.lineWidth = 3;
             ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
         }
 
         function clearROIBox() {
-            // ROI box is drawn fresh each frame, so no explicit clear needed
+            const canvas = roiCanvas.value;
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
         }
 
         // ========== Chart ==========
         function initChart() {
             const ctx = chartCanvas.value.getContext('2d');
-            const labels = Object.values(gestureLabelsCn);
+            const labels = Object.values(gestureLabelsCn.value);
             chart = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels,
                     datasets: [{
-                        data: Array(7).fill(0),
-                        backgroundColor: labels.map(() => 'rgba(56,189,248,0.5)'),
-                        borderColor: labels.map(() => 'rgba(56,189,248,0.8)'),
+                        data: Array(labels.length || 7).fill(0),
+                        backgroundColor: Array(labels.length || 7).fill('rgba(56,189,248,0.5)'),
+                        borderColor: Array(labels.length || 7).fill('rgba(56,189,248,0.8)'),
                         borderWidth: 1,
                         borderRadius: 4,
                     }],
@@ -543,6 +566,32 @@ createApp({
             });
         }
 
+        // ========== Load config from backend ==========
+        async function loadConfig() {
+            try {
+                const resp = await fetch('/api/config');
+                const data = await resp.json();
+                gestureLabelsCn.value = data.gesture_labels_cn || {};
+                commandMap.value = data.command_map || {};
+                commandDescCn.value = data.command_desc_cn || {};
+                configParams.value = data.params || configParams.value;
+            } catch (e) {
+                // Fallback defaults if backend unreachable
+                gestureLabelsCn.value = {
+                    palm: '手掌', fist: '握拳', ok: 'OK', like: '拇指向上',
+                    dislike: '拇指向下', one: '食指', no_gesture: '无手势',
+                };
+                commandMap.value = {
+                    palm: 'light_on', fist: 'light_off', ok: 'confirm_mode',
+                    like: 'increase', dislike: 'decrease', one: 'switch_device', no_gesture: 'idle',
+                };
+                commandDescCn.value = {
+                    light_on: '开灯', light_off: '关灯', confirm_mode: '确认模式',
+                    increase: '调高', decrease: '调低', switch_device: '切换设备', idle: '空闲',
+                };
+            }
+        }
+
         // ========== System ==========
         async function resetSystem() {
             try { await fetch('/api/reset', { method: 'POST' }); } catch(e) {}
@@ -550,12 +599,13 @@ createApp({
             currentGesture.value = null;
             voteStatus.value = null;
             roiSrc.value = null;
-            latestCommand.value = '';
+            clearROIBox();
             chart && chart.data.datasets[0].data.fill(0) && chart.update();
         }
 
         // ========== Lifecycle ==========
-        onMounted(() => {
+        onMounted(async () => {
+            await loadConfig();
             connectWS();
             nextTick(initChart);
             fetch('/api/status')
@@ -574,11 +624,12 @@ createApp({
         });
 
         return {
-            videoEl, canvasEl, chartCanvas, cameraWrapper,
+            videoEl, frameCanvas, roiCanvas, chartCanvas, cameraWrapper,
             wsOnline, cameraActive, fps, modelDevice,
             currentGesture, confidence, voteStatus, roiSrc,
-            deviceStates, cmdHistory, latestCommand,
-            gestureEmoji, gestureLabelsCn, deviceIcons,
+            deviceStates, cmdHistory,
+            gestureEmoji, gestureLabelsCn, commandMap, commandDescCn,
+            deviceIcons, configParams,
             startCamera, stopCamera, resetSystem,
         };
     }
