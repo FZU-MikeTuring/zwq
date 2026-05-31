@@ -2,7 +2,7 @@
 准备论文所需数据集（152201226_张雯倩2）
 
 流程:
-  1. 下载 hagridv2_512.zip (119GB，已存在则跳过)
+  1. 下载 hagridv2_512.zip (119GB，支持多线程并行 + 断点续传)
   2. 下载 annotations.zip
   3. 仅解压 7 个手势类
   4. 根据标注按 train/val/test 分集
@@ -12,14 +12,18 @@
   python prepare_dataset.py --data-dir ./hagrid_dataset
   python prepare_dataset.py --data-dir ./hagrid_dataset --samples 350
   python prepare_dataset.py --data-dir ./hagrid_dataset --skip-download
+  python prepare_dataset.py --data-dir ./hagrid_dataset --workers 16  # 16线程并行下载
 """
 
 import argparse
+import concurrent.futures
 import json
 import os
 import random
 import shutil
 import sys
+import time
+import urllib.request
 import zipfile
 from pathlib import Path
 
@@ -36,8 +40,145 @@ IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 
 
-def download(url: str, dest: str, label: str) -> bool:
-    """下载文件，支持 wget 断点续传，已存在则跳过"""
+def download_parallel(url: str, dest: str, label: str, workers: int = 8) -> bool:
+    """多线程分块并行下载，支持断点续传。
+
+    使用 HTTP Range 请求将文件分成 workers 块同时下载，
+    每个块独立续传（已完成的分块自动跳过）。
+    """
+    dest = Path(dest)
+
+    if dest.exists():
+        gb = dest.stat().st_size / (1024**3)
+        print(f"  [OK] {label} 已存在 ({gb:.1f} GB)，跳过")
+        return True
+
+    print(f"  [↓] 并行下载 {label}（{workers} 线程）...")
+    print(f"      {url}")
+
+    # ── 获取文件总大小 ──
+    req = urllib.request.Request(url, method="HEAD")
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        total_size = int(resp.headers["Content-Length"])
+
+    gb = total_size / (1024**3)
+    print(f"      总大小: {gb:.1f} GB，每块约 {gb/workers:.1f} GB")
+
+    # ── 分块临时目录 ──
+    temp_dir = Path(str(dest) + ".parts")
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    chunk_size = total_size // workers
+    downloaded_bytes = [0] * workers
+    lock = None  # 不用锁，每个线程写自己的 chunk
+
+    def download_chunk(i: int) -> tuple[int, bool]:
+        """下载第 i 个分块，返回 (chunk_index, success)"""
+        start = i * chunk_size
+        end = total_size - 1 if i == workers - 1 else (i + 1) * chunk_size - 1
+        part_file = temp_dir / f"part_{i:04d}"
+        expected_size = end - start + 1
+
+        # 检查已完成的 chunk
+        if part_file.exists() and part_file.stat().st_size == expected_size:
+            downloaded_bytes[i] = expected_size
+            return (i, True)
+
+        # 下载（最多重试 3 次）
+        for attempt in range(3):
+            try:
+                req = urllib.request.Request(
+                    url,
+                    headers={"Range": f"bytes={start}-{end}"},
+                )
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    with open(part_file, "wb") as f:
+                        while True:
+                            buf = resp.read(4 * 1024 * 1024)  # 4MB buffer
+                            if not buf:
+                                break
+                            f.write(buf)
+                            downloaded_bytes[i] = part_file.stat().st_size
+
+                # 校验大小
+                if part_file.stat().st_size == expected_size:
+                    return (i, True)
+                else:
+                    print(f"    [!] chunk {i+1} 大小不匹配，重试...")
+                    part_file.unlink(missing_ok=True)
+
+            except Exception as e:
+                if attempt < 2:
+                    print(f"    [!] chunk {i+1} 出错，{3-attempt-1}次重试: {e}")
+                    time.sleep(2)
+                else:
+                    print(f"    [✗] chunk {i+1} 失败: {e}")
+                    return (i, False)
+
+        return (i, False)
+
+    # ── 进度报告线程 ──
+    def progress_reporter():
+        last_total = 0
+        while True:
+            time.sleep(3)
+            total_dl = sum(downloaded_bytes)
+            if total_dl > 0:
+                pct = total_dl / total_size * 100
+                speed = (total_dl - last_total) / 3 / (1024**2)
+                eta = (total_size - total_dl) / max((total_dl - last_total) / 3, 1)
+                eta_h = eta / 3600
+                print(f"      {pct:.1f}% | {total_dl/1024**3:.1f}/{gb:.1f} GB"
+                      f" | {speed:.1f} MB/s | 剩余 ~{eta_h:.1f}h")
+                last_total = total_dl
+            if total_dl >= total_size:
+                break
+
+    # ── 启动下载 ──
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+        progress_future = executor.submit(progress_reporter)
+        chunk_futures = {executor.submit(download_chunk, i): i
+                         for i in range(workers)}
+
+        all_ok = True
+        for future in concurrent.futures.as_completed(chunk_futures):
+            i, ok = future.result()
+            if not ok:
+                all_ok = False
+                print(f"    [✗] 分块 {i+1}/{workers} 下载失败")
+
+    # 等待进度线程结束
+    progress_future.cancel()
+
+    if not all_ok:
+        print(f"  ✗ 部分分块下载失败，请重试（已完成的分块会自动复用）")
+        return False
+
+    # ── 合并分块 ──
+    print(f"  [↻] 合并 {workers} 个分块...")
+    with open(dest, "wb") as out:
+        for i in range(workers):
+            part_file = temp_dir / f"part_{i:04d}"
+            with open(part_file, "rb") as f:
+                while True:
+                    buf = f.read(8 * 1024 * 1024)  # 8MB read buffer
+                    if not buf:
+                        break
+                    out.write(buf)
+
+    # ── 校验 & 清理 ──
+    final_size = dest.stat().st_size
+    if final_size == total_size:
+        shutil.rmtree(temp_dir)
+        print(f"  [✓] {label} 下载完成 ({final_size/1024**3:.1f} GB)")
+        return True
+    else:
+        print(f"  ✗ 合并后大小不匹配 ({final_size} vs {total_size})")
+        return False
+
+
+def download_simple(url: str, dest: str, label: str) -> bool:
+    """下载小文件（wget/curl），已存在则跳过"""
     dest = Path(dest)
     if dest.exists():
         gb = dest.stat().st_size / (1024**3)
@@ -52,7 +193,7 @@ def download(url: str, dest: str, label: str) -> bool:
 
 
 def extract_zip_classes(zip_path: str, classes: list[str],
-                         out_dir: str) -> dict[str, int]:
+                        out_dir: str) -> dict[str, int]:
     """仅解压 ZIP 中指定类的图片，返回 {类名: 数量}"""
     zip_path = Path(zip_path)
     out_dir = Path(out_dir)
@@ -78,7 +219,6 @@ def extract_zip_classes(zip_path: str, classes: list[str],
                 class_prefix[cls] = sorted(candidates, key=len)[0]
 
         if not class_prefix:
-            # 扁平结构退化为文件名包含匹配
             print("  [!] 未检测到类子目录，使用文件名匹配...")
             for cls in classes:
                 class_prefix[cls] = cls
@@ -192,6 +332,8 @@ def main():
     parser.add_argument("--samples", type=int, default=None,
                         help="每类每集最多 N 张（论文用 350）")
     parser.add_argument("--skip-download", action="store_true", help="跳过下载")
+    parser.add_argument("--workers", "-w", type=int, default=8,
+                        help="并行下载线程数（默认 8）")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
@@ -207,6 +349,7 @@ def main():
     print("=" * 56)
     print("  论文数据集准备 — HaGRIDv2 512px")
     print(f"  目标类: {', '.join(TARGET_CLASSES)}")
+    print(f"  下载线程: {args.workers}")
     print("=" * 56)
 
     # ── 1. 下载 ──────────────────────────────────────
@@ -214,10 +357,13 @@ def main():
         print("\n[1/4] 跳过下载")
     else:
         print("\n[1/4] 下载文件")
-        ok = download(URL_512, zip_512, "HaGRIDv2 512px") and \
-             download(URL_ANN, ann_zip, "标注文件")
+        # 大文件：多线程并行下载
+        ok = download_parallel(URL_512, zip_512, "HaGRIDv2 512px",
+                               workers=args.workers)
+        # 小文件：普通下载
+        ok = ok and download_simple(URL_ANN, ann_zip, "标注文件")
         if not ok:
-            print("❌ 下载失败，检查网络后重试")
+            print("❌ 下载失败，检查网络后重试（已完成的分块会自动复用）")
             sys.exit(1)
 
     # ── 2. 解压标注 ──────────────────────────────────
