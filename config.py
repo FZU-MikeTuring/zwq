@@ -57,7 +57,7 @@ IMAGENET_STD  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 # 训练超参数
 BATCH_SIZE = 32
-NUM_EPOCHS = 20
+NUM_EPOCHS = 70
 FREEZE_EPOCHS = 5          # 前5轮冻结骨干
 LEARNING_RATE = 1e-4
 WEIGHT_DECAY = 1e-4
