@@ -88,8 +88,8 @@ def init_hand_detector():
         options = vision.HandLandmarkerOptions(
             base_options=BaseOptions(model_asset_path=model_path),
             num_hands=1,
-            min_hand_detection_confidence=0.5,
-            min_tracking_confidence=0.5,
+            min_hand_detection_confidence=0.7,
+            min_tracking_confidence=0.7,
         )
         hand_detector = vision.HandLandmarker.create_from_options(options)
         print("[OK] MediaPipe hand detector ready")
@@ -197,18 +197,13 @@ def process_frame(frame_bgr: np.ndarray, gesture_filter: GestureCommandFilter):
             "confidence": confidence,
         })
 
-    # ROI 预处理后图像（用于前端展示）
-    roi_img = preprocess_frame_simple(frame_bgr, hand_box)
-    _, roi_jpg = cv2.imencode(".jpg", cv2.cvtColor(roi_img, cv2.COLOR_RGB2BGR))
-
     return {
         "type": "prediction",
         "pred_label": pred_label,
         "pred_label_cn": GESTURE_LABELS_CN[pred_idx.item()],
         "confidence": round(confidence, 4),
         "probabilities": [round(p, 4) for p in probs.cpu().numpy()[0].tolist()],
-        "hand_box": list(hand_box),
-        "roi_image": roi_jpg.tobytes().hex(),  # base16 encoded JPEG
+        "hand_box": list(hand_box),       # ROI 裁剪坐标（前端本地用）
         "vote_status": vote_status,
         "command": command,
         "command_desc": COMMAND_DESC_CN.get(command, "") if command else "",

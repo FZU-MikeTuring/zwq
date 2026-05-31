@@ -3,80 +3,112 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>A-MobileNet-HGR — 手势识别智能家居控制系统</title>
+    <title>A-MobileNet-HGR | Hand Gesture Recognition</title>
     <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
     <script src="https://unpkg.com/chart.js@4/dist/chart.umd.min.js"></script>
     <style>
         :root {
-            --bg: #0f172a;
-            --card: #1e293b;
-            --border: #334155;
-            --text: #e2e8f0;
-            --sub: #94a3b8;
-            --accent: #38bdf8;
-            --green: #10b981;
-            --red: #ef4444;
-            --yellow: #f59e0b;
-            --purple: #8b5cf6;
+            --bg: #f8f9fa;
+            --surface: #ffffff;
+            --border: #e0e0e0;
+            --text: #202124;
+            --sub: #5f6368;
+            --primary: #1a73e8;
+            --primary-light: #e8f0fe;
+            --success: #0f9d58;
+            --error: #ea4335;
+            --warning: #f9ab00;
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
-            font-family: 'Segoe UI', system-ui, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: var(--bg);
             color: var(--text);
             min-height: 100vh;
         }
 
-        .app-header {
-            background: linear-gradient(135deg, #1e293b, #0f172a);
+        .header {
+            background: var(--surface);
             border-bottom: 1px solid var(--border);
-            padding: 16px 24px;
+            padding: 12px 24px;
             display: flex;
             align-items: center;
             justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 10;
         }
-        .app-header h1 { font-size: 1.3em; color: var(--accent); }
-        .app-header .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
-        .app-header .status-dot.online { background: var(--green); box-shadow: 0 0 6px var(--green); }
-        .app-header .status-dot.offline { background: var(--red); }
+        .header h1 {
+            font-size: 1.15em;
+            font-weight: 500;
+            color: var(--text);
+            letter-spacing: -0.01em;
+        }
+        .header .subtitle {
+            font-size: 0.78em;
+            color: var(--sub);
+            margin-left: 12px;
+        }
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.8em;
+            color: var(--sub);
+        }
+        .status-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--error);
+        }
+        .status-dot.online { background: var(--success); }
 
-        .main-grid {
+        .container {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 20px 24px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+        }
+        .grid-3 {
             display: grid;
             grid-template-columns: 1fr 1fr 1fr;
-            gap: 16px;
-            padding: 16px 24px;
-            max-width: 1440px;
-            margin: 0 auto;
+            gap: 20px;
+            margin-top: 20px;
         }
+
         .card {
-            background: var(--card);
+            background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 12px;
-            padding: 16px;
+            padding: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
         }
-        .card-title {
-            font-size: 0.85em;
+        .card h3 {
+            font-size: 0.82em;
+            font-weight: 500;
             color: var(--sub);
             text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 12px;
-            font-weight: 600;
+            letter-spacing: 0.04em;
+            margin-bottom: 14px;
         }
 
         /* Camera */
-        .camera-col { grid-column: span 2; grid-row: span 3; }
-        .camera-wrapper {
+        .camera-wrap {
             position: relative;
             background: #000;
             border-radius: 8px;
             overflow: hidden;
             aspect-ratio: 4/3;
         }
-        .camera-wrapper video,
-        .camera-wrapper .frame-canvas,
-        .camera-wrapper .roi-canvas {
+        .camera-wrap video,
+        .camera-wrap .frame-canvas,
+        .camera-wrap .roi-canvas {
             position: absolute;
             top: 0; left: 0;
             width: 100%; height: 100%;
@@ -84,247 +116,251 @@
         }
         .roi-canvas { z-index: 2; pointer-events: none; }
         .frame-canvas { z-index: 1; }
-        video { z-index: 0; }
-        .camera-overlay {
-            position: absolute;
-            top: 12px; left: 12px;
-            background: rgba(0,0,0,0.7);
-            padding: 6px 12px;
-            border-radius: 6px;
-            font-size: 0.8em;
-            z-index: 3;
-        }
-        .camera-controls {
+
+        .btn-row {
             display: flex;
-            gap: 8px;
-            margin-top: 10px;
+            gap: 10px;
+            margin-top: 14px;
         }
-        .camera-controls button {
-            flex: 1;
-            padding: 8px 16px;
-            border: 1px solid var(--border);
-            border-radius: 8px;
+        .btn {
+            padding: 10px 20px;
+            border-radius: 24px;
+            border: none;
+            font-size: 0.88em;
+            font-weight: 500;
             cursor: pointer;
-            font-size: 0.85em;
-            transition: all 0.2s;
+            transition: all 0.15s;
+            letter-spacing: 0.01em;
         }
-        .btn-start { background: var(--green); color: #000; border-color: var(--green); }
-        .btn-stop { background: var(--red); color: #fff; border-color: var(--red); }
-        .btn-reset { background: transparent; color: var(--text); }
-        button:hover { opacity: 0.85; transform: translateY(-1px); }
-        button:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+        .btn:disabled { opacity: 0.4; cursor: default; }
+        .btn-primary { background: var(--primary); color: #fff; }
+        .btn-primary:hover:not(:disabled) { background: #1557b0; }
+        .btn-outline { background: transparent; color: var(--primary); border: 1px solid var(--border); }
+        .btn-outline:hover:not(:disabled) { background: var(--primary-light); }
 
-        /* Gesture display */
-        .gesture-col { grid-column: span 1; }
-        .gesture-badge {
+        /* Gesture */
+        .gesture-main {
             text-align: center;
-            padding: 16px;
-            background: rgba(56,189,248,0.1);
-            border: 2px solid var(--accent);
-            border-radius: 12px;
-            margin-bottom: 12px;
+            padding: 24px 0;
         }
-        .gesture-badge .emoji { font-size: 3em; }
-        .gesture-badge .name { font-size: 1.4em; font-weight: 700; margin-top: 8px; }
-        .gesture-badge .confidence { font-size: 2em; font-weight: 800; color: var(--accent); }
+        .gesture-label {
+            font-size: 2.2em;
+            font-weight: 400;
+            margin-bottom: 4px;
+        }
+        .gesture-confidence {
+            font-size: 2.8em;
+            font-weight: 300;
+            color: var(--primary);
+        }
+        .gesture-placeholder {
+            color: var(--sub);
+            font-size: 0.95em;
+            padding: 32px 0;
+        }
 
-        /* Vote progress */
-        .vote-progress { margin-top: 12px; }
-        .vote-bar-bg {
+        /* Vote bar */
+        .vote-bar {
             background: var(--border);
-            border-radius: 8px;
-            height: 24px;
+            border-radius: 6px;
+            height: 6px;
             overflow: hidden;
-            margin: 6px 0;
+            margin: 8px 0;
         }
-        .vote-bar-fill {
+        .vote-fill {
             height: 100%;
-            border-radius: 8px;
-            transition: width 0.3s ease, background 0.3s ease;
+            border-radius: 6px;
+            transition: width 0.3s;
         }
-        .vote-info { font-size: 0.8em; color: var(--sub); }
+        .vote-meta {
+            font-size: 0.75em;
+            color: var(--sub);
+        }
 
-        /* Device panel */
-        .device-grid {
+        /* Devices */
+        .device-row {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 8px;
+            gap: 10px;
         }
-        .device-item {
-            padding: 12px;
-            border-radius: 8px;
+        .device {
+            padding: 14px;
+            border-radius: 10px;
             border: 1px solid var(--border);
             text-align: center;
-            transition: all 0.3s;
+            transition: 0.2s;
         }
-        .device-item.on { background: rgba(16,185,129,0.1); border-color: var(--green); }
-        .device-item.off { background: rgba(100,100,100,0.1); }
-        .device-item .d-icon { font-size: 1.5em; }
-        .device-item .d-name { font-size: 0.8em; color: var(--sub); margin-top: 4px; }
-        .device-item .d-state { font-size: 0.75em; font-weight: 600; margin-top: 2px; }
-        .device-item.on .d-state { color: var(--green); }
-        .device-item.off .d-state { color: var(--sub); }
+        .device.on { border-color: var(--success); background: #e6f4ea; }
+        .device .d-name { font-size: 0.82em; color: var(--sub); }
+        .device .d-state { font-size: 0.78em; font-weight: 500; margin-top: 4px; }
+        .device.on .d-state { color: var(--success); }
+        .device.off .d-state { color: var(--sub); }
 
-        /* Command history */
-        .cmd-list { max-height: 200px; overflow-y: auto; }
-        .cmd-item {
+        /* Command log */
+        .cmd-entry {
             display: flex;
             align-items: center;
-            gap: 8px;
-            padding: 6px 0;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
+            gap: 10px;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border);
             font-size: 0.82em;
-            animation: fadeIn 0.3s;
         }
-        .cmd-time { color: var(--sub); font-family: monospace; }
-        .cmd-gesture { font-weight: 600; }
-        .cmd-arrow { color: var(--accent); }
-        .cmd-desc { color: var(--yellow); }
-        .cmd-conf { color: var(--sub); font-size: 0.85em; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+        .cmd-time { color: var(--sub); font-family: 'SF Mono', 'Cascadia Code', monospace; font-size: 0.9em; }
+        .cmd-gesture { font-weight: 500; width: 5em; }
+        .cmd-action { color: var(--primary); font-weight: 500; }
+        .cmd-conf { color: var(--sub); margin-left: auto; }
+        .empty-state { text-align: center; color: var(--sub); padding: 24px 0; font-size: 0.88em; }
 
-        /* ROI preview */
-        .roi-img { width: 100%; border-radius: 8px; image-rendering: auto; }
+        /* Chart */
+        .chart-box { height: 200px; position: relative; }
 
-        /* Chart container */
-        .chart-wrap { height: 220px; position: relative; }
+        /* Legend */
+        .legend {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            justify-content: center;
+            font-size: 0.82em;
+            color: var(--sub);
+            padding: 8px 0;
+        }
+        .legend span { white-space: nowrap; }
+        .legend .sep { color: var(--border); }
 
         /* Status bar */
         .status-bar {
-            display: flex; gap: 16px;
-            padding: 8px 24px;
-            font-size: 0.78em; color: var(--sub);
+            display: flex;
+            gap: 20px;
+            padding: 10px 24px;
+            font-size: 0.75em;
+            color: var(--sub);
             border-top: 1px solid var(--border);
+            max-width: 1280px;
+            margin: 0 auto;
         }
+
+        .roi-thumb { width: 100%; border-radius: 6px; }
     </style>
 </head>
 <body>
 <div id="app">
-    <!-- Header -->
-    <div class="app-header">
+    <div class="header">
         <div>
-            <h1>🖐️ A-MobileNet-HGR</h1>
-            <span style="font-size:0.8em;color:var(--sub)">基于改进MobileNet的手势识别智能家居控制系统</span>
+            <h1 style="display:inline">A-MobileNet-HGR</h1>
+            <span class="subtitle">Hand Gesture Recognition</span>
         </div>
-        <div style="text-align:right">
-            <div><span class="status-dot" :class="wsOnline ? 'online' : 'offline'"></span>
-                {{ wsOnline ? 'WebSocket 已连接' : 'WebSocket 未连接' }}</div>
-            <span style="font-size:0.75em;color:var(--sub)">FPS: {{ fps }} | {{ modelDevice }}</span>
+        <div>
+            <span class="status-indicator">
+                <span class="status-dot" :class="wsOnline ? 'online' : ''"></span>
+                {{ wsOnline ? 'Connected' : 'Disconnected' }}
+            </span>
+            <span style="font-size:0.75em;color:var(--sub);margin-left:16px">FPS {{ fps }} &middot; {{ modelDevice }}</span>
         </div>
     </div>
 
-    <!-- Main Grid -->
-    <div class="main-grid">
-        <!-- Camera Column (spans 2) -->
-        <div class="card camera-col">
-            <div class="card-title">📷 摄像头实时画面</div>
-            <div class="camera-wrapper" ref="cameraWrapper">
-                <video ref="videoEl" autoplay playsinline muted></video>
-                <canvas class="frame-canvas" ref="frameCanvas"></canvas>
-                <canvas class="roi-canvas" ref="roiCanvas"></canvas>
-                <div class="camera-overlay" v-if="currentGesture">
-                    {{ currentGesture.cn }} <span style="color:var(--accent)">{{ (confidence * 100).toFixed(1) }}%</span>
+    <div class="container">
+        <div class="grid">
+            <!-- Camera -->
+            <div class="card">
+                <h3>Camera</h3>
+                <div class="camera-wrap" ref="cameraWrapper">
+                    <video ref="videoEl" autoplay playsinline muted></video>
+                    <canvas class="frame-canvas" ref="frameCanvas"></canvas>
+                    <canvas class="roi-canvas" ref="roiCanvas"></canvas>
+                </div>
+                <div class="btn-row">
+                    <button class="btn btn-primary" @click="startCamera" :disabled="cameraActive">Start</button>
+                    <button class="btn btn-outline" @click="stopCamera" :disabled="!cameraActive">Stop</button>
+                    <button class="btn btn-outline" @click="resetSystem">Reset</button>
                 </div>
             </div>
-            <div class="camera-controls">
-                <button class="btn-start" @click="startCamera" :disabled="cameraActive">▶ 开启摄像头</button>
-                <button class="btn-stop" @click="stopCamera" :disabled="!cameraActive">⏹ 停止</button>
-                <button class="btn-reset" @click="resetSystem">🔄 重置系统</button>
-            </div>
-        </div>
 
-        <!-- Gesture Display -->
-        <div class="card gesture-col">
-            <div class="card-title">🎯 当前手势</div>
-            <div class="gesture-badge" v-if="currentGesture">
-                <div class="emoji">{{ gestureEmoji[currentGesture.label] || '🤔' }}</div>
-                <div class="name">{{ currentGesture.cn }}</div>
-                <div class="confidence">{{ (confidence * 100).toFixed(1) }}%</div>
-            </div>
-            <div class="gesture-badge" v-else style="border-color:var(--border);background:transparent">
-                <div class="emoji">⏳</div>
-                <div class="name" style="color:var(--sub)">等待手势...</div>
-                <div style="font-size:0.8em;color:var(--sub);margin-top:8px">请将手放入摄像头视野</div>
-            </div>
+            <!-- Gesture + Vote -->
+            <div class="card">
+                <h3>Gesture</h3>
+                <div class="gesture-main" v-if="currentGesture">
+                    <div class="gesture-label">{{ currentGesture.cn }}</div>
+                    <div class="gesture-confidence">{{ (confidence * 100).toFixed(1) }}%</div>
+                </div>
+                <div class="gesture-placeholder" v-else>Waiting for hand gesture...</div>
 
-            <!-- Vote Progress -->
-            <div class="vote-progress" v-if="voteStatus">
-                <div class="card-title">📊 滑窗投票 ({{ voteStatus.current_count }}/{{ voteStatus.min_votes }})</div>
-                <div class="vote-bar-bg">
-                    <div class="vote-bar-fill"
-                         :style="{
-                            width: voteStatus.progress_pct + '%',
-                            background: voteStatus.is_ready ? 'var(--green)' : 'var(--yellow)'
-                         }">
+                <div v-if="voteStatus">
+                    <h3 style="margin-top:12px">Vote Progress</h3>
+                    <div class="vote-bar">
+                        <div class="vote-fill"
+                             :style="{
+                                width: voteStatus.progress_pct + '%',
+                                background: voteStatus.is_ready ? 'var(--success)' : 'var(--warning)'
+                             }">
+                        </div>
+                    </div>
+                    <div class="vote-meta">
+                        {{ voteStatus.current_count }}/{{ voteStatus.min_votes }} votes
+                        &middot; window {{ voteStatus.history_size }}/{{ voteStatus.window_size }}
+                        &middot; cooldown {{ voteStatus.cooldown_remaining.toFixed(1) }}s
+                        {{ voteStatus.is_ready ? '| Ready' : '| Waiting' }}
                     </div>
                 </div>
-                <div class="vote-info">
-                    窗口: {{ voteStatus.history_size }}/{{ voteStatus.window_size }} 帧 |
-                    冷却: {{ voteStatus.cooldown_remaining.toFixed(1) }}s |
-                    {{ voteStatus.is_ready ? '✅ 就绪' : '⏳ 等待' }}
-                </div>
             </div>
         </div>
 
-        <!-- Confidence Chart -->
-        <div class="card">
-            <div class="card-title">📈 各类别置信度</div>
-            <div class="chart-wrap"><canvas ref="chartCanvas"></canvas></div>
-        </div>
+        <div class="grid-3">
+            <!-- ROI preview -->
+            <div class="card">
+                <h3>Hand ROI</h3>
+                <img class="roi-thumb" :src="roiSrc" v-if="roiSrc">
+                <div class="empty-state" v-else>No hand detected</div>
+            </div>
 
-        <!-- ROI Preview -->
-        <div class="card">
-            <div class="card-title">🔍 手部ROI (预处理后)</div>
-            <img class="roi-img" :src="roiSrc" v-if="roiSrc" alt="ROI">
-            <div v-else style="text-align:center;color:var(--sub);padding:40px 0">等待手部检测...</div>
-        </div>
-
-        <!-- Device Panel -->
-        <div class="card">
-            <div class="card-title">🏠 设备状态</div>
-            <div class="device-grid">
-                <div v-for="(state, name) in deviceStates" :key="name"
-                     class="device-item" :class="state ? 'on' : 'off'">
-                    <div class="d-icon">{{ deviceIcons[name] || '📡' }}</div>
-                    <div class="d-name">{{ name }}</div>
-                    <div class="d-state">{{ state ? '🟢 开' : '⚫ 关' }}</div>
+            <!-- Devices -->
+            <div class="card">
+                <h3>Device Status</h3>
+                <div class="device-row">
+                    <div v-for="(state, name) in deviceStates" :key="name" class="device" :class="state ? 'on' : 'off'">
+                        <div class="d-name">{{ name }}</div>
+                        <div class="d-state">{{ state ? 'On' : 'Off' }}</div>
+                    </div>
                 </div>
+            </div>
+
+            <!-- Chart -->
+            <div class="card">
+                <h3>Confidence</h3>
+                <div class="chart-box"><canvas ref="chartCanvas"></canvas></div>
             </div>
         </div>
 
         <!-- Command History -->
-        <div class="card">
-            <div class="card-title">📜 指令历史</div>
-            <div class="cmd-list">
-                <div v-for="(cmd, i) in cmdHistory" :key="i" class="cmd-item">
+        <div class="card" style="margin-top:20px">
+            <h3>Command Log</h3>
+            <div>
+                <div v-for="(cmd, i) in cmdHistory" :key="i" class="cmd-entry">
                     <span class="cmd-time">{{ cmd.time }}</span>
                     <span class="cmd-gesture">{{ cmd.gesture }}</span>
-                    <span class="cmd-arrow">→</span>
-                    <span class="cmd-desc">{{ cmd.command }}</span>
+                    <span style="color:var(--sub)">/</span>
+                    <span class="cmd-action">{{ cmd.command }}</span>
                     <span class="cmd-conf">{{ (cmd.confidence * 100).toFixed(0) }}%</span>
                 </div>
-                <div v-if="!cmdHistory.length" style="text-align:center;color:var(--sub);padding:20px">等待指令...</div>
+                <div class="empty-state" v-if="!cmdHistory.length">No commands triggered yet</div>
             </div>
         </div>
-    </div>
 
-    <!-- Gesture Reference (dynamic from API) -->
-    <div class="card" style="margin:0 24px 16px">
-        <div class="card-title">📋 手势 — 指令对照</div>
-        <div style="display:flex;gap:16px;flex-wrap:wrap;justify-content:center;font-size:0.85em">
-            <template v-for="(cn, label) in gestureLabelsCn" :key="label">
-                <span>{{ gestureEmoji[label] || '❓' }} {{ cn }} → {{ commandDescCn[commandMap[label]] || commandMap[label] }}</span>
-                <span style="color:var(--sub)">|</span>
-            </template>
+        <!-- Legend -->
+        <div class="card" style="margin-top:20px">
+            <div class="legend">
+                <template v-for="(cn, label) in gestureLabelsCn" :key="label">
+                    <span>{{ cn }} / {{ commandDescCn[commandMap[label]] || commandMap[label] }}</span>
+                    <span class="sep">|</span>
+                </template>
+            </div>
         </div>
-    </div>
 
-    <!-- Status Bar -->
-    <div class="status-bar">
-        <span>模型: A-MobileNet-HGR | 参数量: ~2.7M | 准确率: 96.2% | CPU延迟: ~44ms</span>
-        <span style="margin-left:auto">滑窗: {{ configParams.sliding_window }}帧/{{ configParams.min_votes }}票
-            | 置信度阈值: {{ configParams.confidence_threshold }}
-            | 冷却: {{ configParams.cooldown_sec }}s</span>
+        <div class="status-bar">
+            <span>A-MobileNet-HGR &middot; 0.54M params &middot; 96.2% accuracy</span>
+            <span style="margin-left:auto">Window {{ configParams.sliding_window }}/{{ configParams.min_votes }}
+                &middot; Threshold {{ configParams.confidence_threshold }}
+                &middot; Cooldown {{ configParams.cooldown_sec }}s</span>
+        </div>
     </div>
 </div>
 
@@ -333,14 +369,12 @@ const { createApp, ref, reactive, onMounted, onUnmounted, nextTick } = Vue;
 
 createApp({
     setup() {
-        // ========== Refs ==========
         const videoEl = ref(null);
         const frameCanvas = ref(null);
         const roiCanvas = ref(null);
         const chartCanvas = ref(null);
         const cameraWrapper = ref(null);
 
-        // ========== State ==========
         const wsOnline = ref(false);
         const cameraActive = ref(false);
         const fps = ref(0);
@@ -353,68 +387,33 @@ createApp({
         const deviceStates = ref({});
         const cmdHistory = reactive([]);
 
-        let ws = null;
-        let stream = null;
-        let animFrameId = null;
-        let chart = null;
-        let fpsCounter = [];
-        let lastFrameTime = 0;
+        let ws = null, stream = null, animFrameId = null, chart = null;
+        let fpsCounter = [], lastFrameTime = 0;
 
-        // ========== Config from API (single source of truth) ==========
         const gestureLabelsCn = ref({});
         const commandMap = ref({});
         const commandDescCn = ref({});
         const configParams = ref({ sliding_window: 8, min_votes: 5, confidence_threshold: 0.75, cooldown_sec: 1.0 });
 
-        // ========== Frontend-only constants ==========
-        const gestureEmoji = {
-            palm: '🖐️', fist: '✊', ok: '👌', like: '👍',
-            dislike: '👎', one: '☝️', no_gesture: '😐',
-        };
-        const deviceIcons = {
-            '客厅灯': '💡', '空调': '❄️', '窗帘': '🪟', '电视': '📺',
-        };
-
-        // ========== WebSocket ==========
-        function connectWS() {
+        async function connectWS() {
             const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${location.host}/ws`;
-            ws = new WebSocket(wsUrl);
+            ws = new WebSocket(`${protocol}//${location.host}/ws`);
             ws.binaryType = 'arraybuffer';
-
             ws.onopen = () => { wsOnline.value = true; };
             ws.onclose = () => { wsOnline.value = false; setTimeout(connectWS, 2000); };
             ws.onerror = () => { wsOnline.value = false; };
-
             ws.onmessage = (event) => {
                 const data = JSON.parse(event.data);
-
                 if (data.type === 'prediction') {
-                    currentGesture.value = {
-                        label: data.pred_label,
-                        cn: data.pred_label_cn,
-                    };
+                    currentGesture.value = { label: data.pred_label, cn: data.pred_label_cn };
                     confidence.value = data.confidence;
                     voteStatus.value = data.vote_status;
                     deviceStates.value = data.device_states || {};
-
-                    // ROI image
-                    if (data.roi_image) {
-                        const bytes = new Uint8Array(
-                            data.roi_image.match(/.{1,2}/g).map(b => parseInt(b, 16))
-                        );
-                        const blob = new Blob([bytes], { type: 'image/jpeg' });
-                        if (roiSrc.value) URL.revokeObjectURL(roiSrc.value);
-                        roiSrc.value = URL.createObjectURL(blob);
-                    }
-
-                    // Update chart
+                    if (data.hand_box && videoEl.value) cropROILocal(data.hand_box);
                     if (data.probabilities && chart) {
                         chart.data.datasets[0].data = data.probabilities.map(p => p * 100);
                         chart.update('none');
                     }
-
-                    // Command triggered
                     if (data.command && data.command !== 'idle') {
                         cmdHistory.unshift({
                             time: new Date().toLocaleTimeString(),
@@ -424,17 +423,12 @@ createApp({
                         });
                         if (cmdHistory.length > 20) cmdHistory.pop();
                     }
-
-                    // Draw ROI box on separate overlay canvas (won't be overwritten)
                     drawROIBox(data.hand_box);
-
                 } else if (data.type === 'no_hand') {
                     deviceStates.value = data.device_states || {};
                     currentGesture.value = null;
                     clearROIBox();
                 }
-
-                // FPS
                 const now = performance.now();
                 if (lastFrameTime) {
                     fpsCounter.push(1000 / (now - lastFrameTime));
@@ -445,7 +439,6 @@ createApp({
             };
         }
 
-        // ========== Camera ==========
         async function startCamera() {
             try {
                 stream = await navigator.mediaDevices.getUserMedia({
@@ -456,19 +449,13 @@ createApp({
                 cameraActive.value = true;
                 sendFrames();
             } catch (err) {
-                alert('无法访问摄像头: ' + err.message);
+                alert('Camera access denied: ' + err.message);
             }
         }
 
         function stopCamera() {
-            if (stream) {
-                stream.getTracks().forEach(t => t.stop());
-                stream = null;
-            }
-            if (animFrameId) {
-                cancelAnimationFrame(animFrameId);
-                animFrameId = null;
-            }
+            if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+            if (animFrameId) { cancelAnimationFrame(animFrameId); animFrameId = null; }
             videoEl.value.srcObject = null;
             cameraActive.value = false;
             currentGesture.value = null;
@@ -481,60 +468,61 @@ createApp({
                 animFrameId = requestAnimationFrame(sendFrames);
                 return;
             }
-
-            const video = videoEl.value;
-            const canvas = frameCanvas.value;
+            const video = videoEl.value, canvas = frameCanvas.value;
             if (!video || !canvas) return;
-
             const ctx = canvas.getContext('2d');
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
             ctx.drawImage(video, 0, 0);
-
             canvas.toBlob((blob) => {
                 if (blob && ws.readyState === WebSocket.OPEN) {
                     blob.arrayBuffer().then(buf => ws.send(buf));
                 }
             }, 'image/jpeg', 0.7);
-
             animFrameId = requestAnimationFrame(sendFrames);
         }
 
-        // ========== ROI Box (separate overlay canvas) ==========
+        function cropROILocal(handBox) {
+            const video = videoEl.value;
+            if (!video || !handBox) return;
+            const [x1, y1, x2, y2] = handBox;
+            const w = x2 - x1, h = y2 - y1;
+            if (w <= 0 || h <= 0) return;
+            const c = document.createElement('canvas');
+            c.width = w; c.height = h;
+            const ctx = c.getContext('2d');
+            const sx = video.videoWidth / video.clientWidth;
+            const sy = video.videoHeight / video.clientHeight;
+            ctx.drawImage(video, Math.round(x1*sx), Math.round(y1*sy), Math.round(w*sx), Math.round(h*sy), 0, 0, w, h);
+            if (roiSrc.value) URL.revokeObjectURL(roiSrc.value);
+            c.toBlob(blob => { roiSrc.value = URL.createObjectURL(blob); }, 'image/jpeg', 0.8);
+        }
+
         function drawROIBox(handBox) {
             const canvas = roiCanvas.value;
             if (!canvas) return;
             const video = videoEl.value;
             if (!video) return;
-
-            // Match video dimensions for correct coordinate mapping
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
-
             const ctx = canvas.getContext('2d');
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-
             if (!handBox) return;
-
             const [x1, y1, x2, y2] = handBox;
-            // Semi-transparent fill outside ROI
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+            ctx.fillStyle = 'rgba(0,0,0,0.2)';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.clearRect(x1, y1, x2 - x1, y2 - y1);
-            // ROI border
-            ctx.strokeStyle = '#10b981';
+            ctx.clearRect(x1, y1, x2-x1, y2-y1);
+            ctx.strokeStyle = '#1a73e8';
             ctx.lineWidth = 3;
-            ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+            ctx.strokeRect(x1, y1, x2-x1, y2-y1);
         }
 
         function clearROIBox() {
             const canvas = roiCanvas.value;
             if (!canvas) return;
-            const ctx = canvas.getContext('2d');
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
         }
 
-        // ========== Chart ==========
         function initChart() {
             const ctx = chartCanvas.value.getContext('2d');
             const labels = Object.values(gestureLabelsCn.value);
@@ -544,55 +532,36 @@ createApp({
                     labels,
                     datasets: [{
                         data: Array(labels.length || 7).fill(0),
-                        backgroundColor: Array(labels.length || 7).fill('rgba(56,189,248,0.5)'),
-                        borderColor: Array(labels.length || 7).fill('rgba(56,189,248,0.8)'),
-                        borderWidth: 1,
-                        borderRadius: 4,
+                        backgroundColor: labels.map(() => 'rgba(26,115,232,0.35)'),
+                        borderColor: labels.map(() => 'rgba(26,115,232,0.7)'),
+                        borderWidth: 1, borderRadius: 3,
                     }],
                 },
                 options: {
                     indexAxis: 'y',
                     responsive: true,
                     maintainAspectRatio: false,
-                    animation: { duration: 150 },
+                    animation: { duration: 120 },
                     scales: {
-                        x: { max: 100, ticks: { color: '#94a3b8', callback: v => v + '%' }, grid: { color: '#334155' } },
-                        y: { ticks: { color: '#94a3b8', font: { size: 11 } }, grid: { display: false } },
+                        x: { max: 100, ticks: { color: '#5f6368', callback: v => v + '%' }, grid: { color: '#e8eaed' } },
+                        y: { ticks: { color: '#5f6368', font: { size: 10 } }, grid: { display: false } },
                     },
-                    plugins: {
-                        legend: { display: false },
-                    },
+                    plugins: { legend: { display: false } },
                 },
             });
         }
 
-        // ========== Load config from backend ==========
         async function loadConfig() {
             try {
-                const resp = await fetch('/api/config');
-                const data = await resp.json();
-                gestureLabelsCn.value = data.gesture_labels_cn || {};
-                commandMap.value = data.command_map || {};
-                commandDescCn.value = data.command_desc_cn || {};
-                configParams.value = data.params || configParams.value;
-            } catch (e) {
-                // Fallback defaults if backend unreachable
-                gestureLabelsCn.value = {
-                    palm: '手掌', fist: '握拳', ok: 'OK', like: '拇指向上',
-                    dislike: '拇指向下', one: '食指', no_gesture: '无手势',
-                };
-                commandMap.value = {
-                    palm: 'light_on', fist: 'light_off', ok: 'confirm_mode',
-                    like: 'increase', dislike: 'decrease', one: 'switch_device', no_gesture: 'idle',
-                };
-                commandDescCn.value = {
-                    light_on: '开灯', light_off: '关灯', confirm_mode: '确认模式',
-                    increase: '调高', decrease: '调低', switch_device: '切换设备', idle: '空闲',
-                };
-            }
+                const r = await fetch('/api/config');
+                const d = await r.json();
+                gestureLabelsCn.value = d.gesture_labels_cn || {};
+                commandMap.value = d.command_map || {};
+                commandDescCn.value = d.command_desc_cn || {};
+                configParams.value = d.params || configParams.value;
+            } catch (e) {}
         }
 
-        // ========== System ==========
         async function resetSystem() {
             try { await fetch('/api/reset', { method: 'POST' }); } catch(e) {}
             cmdHistory.length = 0;
@@ -603,18 +572,14 @@ createApp({
             chart && chart.data.datasets[0].data.fill(0) && chart.update();
         }
 
-        // ========== Lifecycle ==========
         onMounted(async () => {
             await loadConfig();
             connectWS();
             nextTick(initChart);
-            fetch('/api/status')
-                .then(r => r.json())
-                .then(d => {
-                    deviceStates.value = d.device_states || {};
-                    modelDevice.value = d.model_info?.device || 'CPU';
-                })
-                .catch(() => {});
+            fetch('/api/status').then(r => r.json()).then(d => {
+                deviceStates.value = d.device_states || {};
+                modelDevice.value = d.model_info?.device || 'CPU';
+            }).catch(() => {});
         });
 
         onUnmounted(() => {
@@ -628,8 +593,8 @@ createApp({
             wsOnline, cameraActive, fps, modelDevice,
             currentGesture, confidence, voteStatus, roiSrc,
             deviceStates, cmdHistory,
-            gestureEmoji, gestureLabelsCn, commandMap, commandDescCn,
-            deviceIcons, configParams,
+            gestureLabelsCn, commandMap, commandDescCn,
+            configParams,
             startCamera, stopCamera, resetSystem,
         };
     }

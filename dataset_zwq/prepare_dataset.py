@@ -380,6 +380,12 @@ def main():
             sys.exit(1)
         with zipfile.ZipFile(ann_zip) as zf:
             zf.extractall(ann_dir)
+        # 处理 zip 内可能多套的一层 annotations/ 目录
+        nested = ann_dir / "annotations"
+        if nested.is_dir() and not (ann_dir / "train").is_dir():
+            for item in list(nested.iterdir()):
+                shutil.move(str(item), str(ann_dir / item.name))
+            nested.rmdir()
         print(f"  [OK] → {ann_dir}")
 
         # ── 3. 选择性解压 7 类 ────────────────────────
