@@ -111,15 +111,15 @@ def plot_curves(history: dict, save_path: str):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
     epochs = range(1, len(history["train_loss"]) + 1)
 
-    ax1.plot(epochs, history["train_acc"], "b-", label="训练准确率", linewidth=1.5)
-    ax1.plot(epochs, history["val_acc"], "r-", label="验证准确率", linewidth=1.5)
-    ax1.set_xlabel("Epoch"); ax1.set_ylabel("准确率")
-    ax1.set_title("训练与验证准确率变化"); ax1.legend(); ax1.grid(True, alpha=0.3)
+    ax1.plot(epochs, history["train_acc"], "b-", label="Train", linewidth=1.5)
+    ax1.plot(epochs, history["val_acc"], "r-", label="Val", linewidth=1.5)
+    ax1.set_xlabel("Epoch"); ax1.set_ylabel("Accuracy")
+    ax1.set_title("Training & Validation Accuracy"); ax1.legend(); ax1.grid(True, alpha=0.3)
 
-    ax2.plot(epochs, history["train_loss"], "b-", label="训练损失", linewidth=1.5)
-    ax2.plot(epochs, history["val_loss"], "r-", label="验证损失", linewidth=1.5)
+    ax2.plot(epochs, history["train_loss"], "b-", label="Train", linewidth=1.5)
+    ax2.plot(epochs, history["val_loss"], "r-", label="Val", linewidth=1.5)
     ax2.set_xlabel("Epoch"); ax2.set_ylabel("Loss")
-    ax2.set_title("训练与验证损失变化"); ax2.legend(); ax2.grid(True, alpha=0.3)
+    ax2.set_title("Training & Validation Loss"); ax2.legend(); ax2.grid(True, alpha=0.3)
 
     plt.tight_layout(); plt.savefig(save_path, dpi=150); plt.close()
     print(f"[OK] Training curves saved: {save_path}")
@@ -127,7 +127,8 @@ def plot_curves(history: dict, save_path: str):
 
 def plot_confusion_matrix(targets, preds, save_path: str):
     cm = confusion_matrix(targets, preds)
-    labels_cn = [GESTURE_LABELS_CN[i] for i in range(NUM_CLASSES)]
+    # Use English class labels to avoid font issues
+    labels_en = [GESTURE_LABELS[i] for i in range(NUM_CLASSES)]
 
     fig, ax = plt.subplots(figsize=(10, 8))
     im = ax.imshow(cm, cmap="Blues")
@@ -137,10 +138,10 @@ def plot_confusion_matrix(targets, preds, save_path: str):
                     fontsize=9, color="white" if cm[i, j] > cm.max() / 2 else "black")
 
     ax.set_xticks(range(NUM_CLASSES)); ax.set_yticks(range(NUM_CLASSES))
-    ax.set_xticklabels(labels_cn, rotation=45, ha="right")
-    ax.set_yticklabels(labels_cn)
-    ax.set_xlabel("预测标签"); ax.set_ylabel("真实标签")
-    ax.set_title("A-MobileNet-HGR 混淆矩阵")
+    ax.set_xticklabels(labels_en, rotation=45, ha="right")
+    ax.set_yticklabels(labels_en)
+    ax.set_xlabel("Predicted"); ax.set_ylabel("True")
+    ax.set_title("A-MobileNet-HGR Confusion Matrix")
     plt.colorbar(im, ax=ax); plt.tight_layout()
     plt.savefig(save_path, dpi=150); plt.close()
     print(f"[OK] Confusion matrix saved: {save_path}")
@@ -148,13 +149,6 @@ def plot_confusion_matrix(targets, preds, save_path: str):
 
 def train(train_dir: str, val_dir: str, test_dir: str,
           output_dir: str = "./output", device: str = None):
-    """
-    Args:
-        train_dir: 训练集目录（每类一个子文件夹）
-        val_dir:   验证集目录
-        test_dir:  测试集目录
-        output_dir: 输出目录
-    """
     os.makedirs(output_dir, exist_ok=True)
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
@@ -165,7 +159,6 @@ def train(train_dir: str, val_dir: str, test_dir: str,
     val_ds   = datasets.ImageFolder(val_dir,   transform=build_transforms(train=False))
     test_ds  = datasets.ImageFolder(test_dir,  transform=build_transforms(train=False))
 
-    # ImageFolder 按字母序分配索引，需对齐到 config.GESTURE_LABELS 的映射
     name_to_idx = {v: k for k, v in GESTURE_LABELS.items()}
     for ds in [train_ds, val_ds, test_ds]:
         remap = [name_to_idx[name] for name in ds.classes]
@@ -231,9 +224,21 @@ def train(train_dir: str, val_dir: str, test_dir: str,
     print(f"\n=== Training Complete ({(time.time() - t_start):.1f}s) ===")
     print(f"Best val accuracy: {best_val_acc:.2%}")
 
-    # ---- 5. 测试 ----
+    # 保存训练历史（后续可重新出图）
+    import json
+    with open(os.path.join(output_dir, "history.json"), "w") as f:
+        json.dump(dict(history), f)
+
+    # ---- 5. 测试 & 图表 ----
+    test_and_plot(model, best_model_path, test_loader, criterion, device, output_dir, history)
+
+
+def test_and_plot(model, model_path, test_loader, criterion, device, output_dir,
+                  history: dict = None):
+    """从已有模型权重评估测试集并生成图表"""
+    import json as _json
     print("\n=== Test Set Evaluation ===")
-    model.load_state_dict(torch.load(best_model_path, map_location=device))
+    model.load_state_dict(torch.load(model_path, map_location=device))
     test_loss, test_acc, test_targets, test_preds = evaluate(
         model, test_loader, criterion, device)
 
@@ -246,38 +251,42 @@ def train(train_dir: str, val_dir: str, test_dir: str,
         target_names=[GESTURE_LABELS[i] for i in range(NUM_CLASSES)]
     )}")
 
-    # ---- 6. 保存结果 ----
+    # 训练曲线：优先用传入的 history，其次从文件加载
+    if history is None:
+        hist_path = os.path.join(output_dir, "history.json")
+        history = _json.load(open(hist_path)) if os.path.exists(hist_path) else defaultdict(list)
+
     plot_curves(history, os.path.join(output_dir, "training_curves.png"))
     plot_confusion_matrix(test_targets, test_preds,
                           os.path.join(output_dir, "confusion_matrix.png"))
 
-    final_path = os.path.join(output_dir, "amobilenet_hgr_final.pth")
-    torch.save(model.state_dict(), final_path)
-    print(f"[OK] Final model saved: {final_path}")
-
-    return model, history
-
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="训练 A-MobileNet-HGR 模型")
-    parser.add_argument("--train_dir", type=str, default="./hagrid_dataset/organized/train",
-                        help="训练集目录")
-    parser.add_argument("--val_dir", type=str, default="./hagrid_dataset/organized/val",
-                        help="验证集目录")
-    parser.add_argument("--test_dir", type=str, default="./hagrid_dataset/organized/test",
-                        help="测试集目录")
-    parser.add_argument("--output_dir", type=str, default="./output", help="输出目录")
-    parser.add_argument("--device", type=str, default=None, help="训练设备 (cuda/cpu)")
+    parser = argparse.ArgumentParser(description="训练 / 评估 A-MobileNet-HGR 模型")
+    parser.add_argument("--train_dir", type=str, default="./dataset_zwq/hagrid_dataset/organized/train")
+    parser.add_argument("--val_dir", type=str, default="./dataset_zwq/hagrid_dataset/organized/val")
+    parser.add_argument("--test_dir", type=str, default="./dataset_zwq/hagrid_dataset/organized/test")
+    parser.add_argument("--output_dir", type=str, default="./output")
+    parser.add_argument("--device", type=str, default=None)
+    parser.add_argument("--eval-only", type=str, default=None,
+                        help="仅评估已有模型并重新生成图表（指定模型路径）")
     args = parser.parse_args()
 
-    train(args.train_dir, args.val_dir, args.test_dir, args.output_dir, args.device)
+    if args.eval_only:
+        device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Device: {device}")
 
-"""
-  cd ..
-  pip install -r requirements.txt
-  python train.py \
-    --train_dir ./dataset_zwq/hagrid_dataset/organized/train \
-    --val_dir ./dataset_zwq/hagrid_dataset/organized/val \
-    --test_dir ./dataset_zwq/hagrid_dataset/organized/test \
-    --output_dir ./output
-"""
+        test_ds = datasets.ImageFolder(args.test_dir, transform=build_transforms(train=False))
+        name_to_idx = {v: k for k, v in GESTURE_LABELS.items()}
+        remap = [name_to_idx[name] for name in test_ds.classes]
+        test_ds.samples = [(path, remap[label]) for path, label in test_ds.samples]
+        test_ds.targets = [remap[t] for t in test_ds.targets]
+
+        test_loader = DataLoader(test_ds, batch_size=BATCH_SIZE, shuffle=False,
+                                 num_workers=2, pin_memory=True)
+
+        model = AMobileNetGesture(num_classes=NUM_CLASSES).to(device)
+        criterion = LabelSmoothingCrossEntropy(smoothing=LABEL_SMOOTHING)
+        test_and_plot(model, args.eval_only, test_loader, criterion, device, args.output_dir)
+    else:
+        train(args.train_dir, args.val_dir, args.test_dir, args.output_dir, args.device)
