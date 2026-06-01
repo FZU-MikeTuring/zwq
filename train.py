@@ -1,7 +1,7 @@
 """
 模型训练脚本
-- ImageNet 预训练权重初始化
-- 前 5 轮冻结骨干 → 后 15 轮微调解冻
+- MobileNetV3-Small + ImageNet 预训练权重初始化
+- 前 5 轮冻结骨干 → 后 65 轮全量微调
 - AdamW + 余弦退火学习率 + 标签平滑
 """
 import os
@@ -64,9 +64,8 @@ class LabelSmoothingCrossEntropy(nn.Module):
 def set_trainable(model: AMobileNetGesture, trainable: bool):
     for param in model.features.parameters():
         param.requires_grad = trainable
-    for module in [model.eca, model.spatial, model.classifier]:
-        for param in module.parameters():
-            param.requires_grad = True
+    for param in model.classifier.parameters():
+        param.requires_grad = True
 
 
 def train_epoch(model, loader, optimizer, criterion, device, epoch, total_epochs):
@@ -141,7 +140,7 @@ def plot_confusion_matrix(targets, preds, save_path: str):
     ax.set_xticklabels(labels_en, rotation=45, ha="right")
     ax.set_yticklabels(labels_en)
     ax.set_xlabel("Predicted"); ax.set_ylabel("True")
-    ax.set_title("A-MobileNet-HGR Confusion Matrix")
+    ax.set_title("MobileNetV3-Small Gesture Recognition — Confusion Matrix")
     plt.colorbar(im, ax=ax); plt.tight_layout()
     plt.savefig(save_path, dpi=150); plt.close()
     print(f"[OK] Confusion matrix saved: {save_path}")
@@ -177,7 +176,7 @@ def train(train_dir: str, val_dir: str, test_dir: str,
     print(f"Classes (model order):  {[GESTURE_LABELS[i] for i in range(NUM_CLASSES)]}")
 
     # ---- 2. 模型 ----
-    print("\n=== Building A-MobileNet-HGR ===")
+    print("\n=== Building MobileNetV3-Small (ImageNet pretrained) ===")
     model = AMobileNetGesture(num_classes=NUM_CLASSES).to(device)
     print(f"Parameters: {model.param_count:.2f}M")
 
